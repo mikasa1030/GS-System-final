@@ -65,6 +65,13 @@
             draggable="false"
           />
           
+          <!-- Mask Overlay -->
+          <img 
+            v-if="maskOverlay"
+            :src="maskOverlay"
+            class="mask-overlay"
+          />
+
           <!-- Render Points -->
           <div 
             v-for="(pt, idx) in points" 
@@ -154,6 +161,8 @@ watch(() => [props.dataset, props.scene], () => {
 
 const selectedImage = ref(null);
 const containerRef = ref(null);
+const imageRef = ref(null);
+const maskOverlay = ref(null);
 const points = ref([]);
 const box = reactive({
   startX: 0,
@@ -170,10 +179,23 @@ const selectImage = (img) => {
   points.value = [];
   box.visible = false;
   box.isDrawing = false;
+  maskOverlay.value = null;
 };
+
+const reset = () => {
+    points.value = [];
+    box.visible = false;
+    box.isDrawing = false;
+    maskOverlay.value = null;
+};
+
+defineExpose({
+    reset
+});
 
 const closeImage = () => {
   selectedImage.value = null;
+  maskOverlay.value = null;
 };
 
 const handleMouseDown = (e) => {
@@ -212,30 +234,74 @@ const handleMouseUp = () => {
   }
 };
 
-const confirmSelection = () => {
-  // Calculate relative coordinates (0-1)
-  if (!containerRef.value) return;
-  const width = containerRef.value.clientWidth;
-  const height = containerRef.value.clientHeight;
+const confirmSelection = async () => {
+    // Calculate relative coordinates (0-1)
+    if (!containerRef.value || !imageRef.value) return;
+    
+    // Get displayed dimensions (container matches image display size)
+    const displayWidth = containerRef.value.clientWidth;
+    const displayHeight = containerRef.value.clientHeight;
+    
+    // Get actual image dimensions
+    const naturalWidth = imageRef.value.naturalWidth;
+    const naturalHeight = imageRef.value.naturalHeight;
 
-  const result = {
-    dataset: props.dataset,
-    image: selectedImage.value,
-    width,
-    height,
-    points: points.value.map(p => ({ x: p.x / width, y: p.y / height })),
-    box: box.visible ? {
-      x: Math.min(box.startX, box.currentX) / width,
-      y: Math.min(box.startY, box.currentY) / height,
-      w: Math.abs(box.currentX - box.startX) / width,
-      h: Math.abs(box.currentY - box.startY) / height
-    } : null
+    console.log(`Dimensions - Display: ${displayWidth}x${displayHeight}, Natural: ${naturalWidth}x${naturalHeight}`);
+
+    // Show loading state
+    loading.value = true;
+
+    const payload = {
+      image_url: selectedImage.value.url,
+      width: naturalWidth || 1920, 
+      height: naturalHeight || 1080,
+      points: points.value.map(p => ({ x: p.x / displayWidth, y: p.y / displayHeight })),
+      box: box.visible ? {
+        x: Math.min(box.startX, box.currentX) / displayWidth,
+        y: Math.min(box.startY, box.currentY) / displayHeight,
+        w: Math.abs(box.currentX - box.startX) / displayWidth,
+        h: Math.abs(box.currentY - box.startY) / displayHeight
+      } : null
+    };
+
+    console.log('Sending segmentation payload:', payload);
+
+    try {
+        const response = await fetch('http://127.0.0.1:8000/segment/', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(payload)
+        });
+
+        if (!response.ok) {
+            throw new Error('Segmentation failed');
+        }
+
+        const result = await response.json();
+        
+        // Show mask on image
+        if (result.mask) {
+            maskOverlay.value = result.mask;
+        }
+
+        emit('selection-complete', {
+            ...payload,
+            mask: result.mask,
+            score: result.score
+        });
+        
+        // Don't close immediately, let user see the mask
+        // closeImage(); 
+    } catch (e) {
+        console.error("Segmentation error:", e);
+        error.value = "分割失败: " + e.message;
+        alert("分割失败，请检查后端日志");
+    } finally {
+        loading.value = false;
+    }
   };
-
-  emit('selection-complete', result);
-  alert('标注已提交！(模拟后端调用SAM)');
-  closeImage();
-};
 </script>
 
 <style scoped>
@@ -430,6 +496,16 @@ const confirmSelection = () => {
   max-width: 100%;
   max-height: 80vh;
   user-select: none;
+}
+
+.mask-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  opacity: 0.7;
 }
 
 .point-marker {

@@ -49,6 +49,7 @@
         <!-- Image Selector -->
         <div v-if="currentTool !== 'view'" class="full-size">
           <ImageSelector 
+            ref="imageSelectorRef"
             :tool="currentTool"
             :dataset="datasetName"
             :scene="sceneName"
@@ -80,6 +81,7 @@ const modelFormat = ref(null);
 const currentTool = ref('view');
 const selectionMade = ref(false);
 const fileInput = ref(null);
+const imageSelectorRef = ref(null);
 const datasetName = ref('');
 const sceneName = ref('');
 
@@ -166,11 +168,8 @@ const setTool = (tool) => {
 const handleImageSelection = (result) => {
     console.log('Selection received:', result);
     selectionMade.value = true;
-    // Here we would typically send the result to backend (SAM)
-    // For now, we just acknowledge it and maybe switch back to view?
-    // User might want to stay to select more?
-    // Let's switch back to view as "confirmation"
-    currentTool.value = 'view';
+    // Don't switch back to view immediately, let user see the mask
+    // currentTool.value = 'view';
 };
 
 const removeSelection = () => {
@@ -181,6 +180,9 @@ const removeSelection = () => {
 
 const clearSelection = () => {
   selectionMade.value = false;
+  if (imageSelectorRef.value) {
+    imageSelectorRef.value.reset();
+  }
 };
 </script>
 

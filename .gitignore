@@ -1,2 +1,39 @@
 /web/dist
 /web/public
+/segment-anything-main
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+.venv/
+env/
+.env
+
+# Node
+node_modules/
+
+# IDE
+.vscode/
+.idea/
+
+# Models and Checkpoints (Large files)
+*.pth
+*.ckpt
+server/checkpoints/
+
+# 3D Models and Large Assets
+*.ply
+*.splat
+*.mp4
+*.obj
+*.glb
+*.gltf
+
+# System
+.DS_Store
+Thumbs.db
+
+# Datasets
+datasets/
