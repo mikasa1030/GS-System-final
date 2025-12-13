@@ -522,8 +522,8 @@ const confirmSelection = async () => {
 
 .box-overlay {
   position: absolute;
-  border: 2px solid var(--success);
-  background: rgba(16, 185, 129, 0.2);
+  border: 2px solid var(--primary);
+  background: rgba(139, 92, 246, 0.2);
   pointer-events: none;
 }
 </style>

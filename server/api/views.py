@@ -1,5 +1,6 @@
 import os
 import datetime
+import shutil
 from django.conf import settings
 from rest_framework import viewsets, status, views
 from rest_framework.decorators import action
@@ -25,8 +26,18 @@ class DatasetViewSet(viewsets.ViewSet):
                 if os.path.isdir(path):
                     # Count scenes
                     scenes = []
+                    scene_details = {}
                     try:
-                        scenes = [s for s in os.listdir(path) if os.path.isdir(os.path.join(path, s))]
+                        for s in os.listdir(path):
+                            scene_path = os.path.join(path, s)
+                            if os.path.isdir(scene_path):
+                                scenes.append(s)
+                                # List subdirectories in scene
+                                try:
+                                    subdirs = [d for d in os.listdir(scene_path) if os.path.isdir(os.path.join(scene_path, d))]
+                                    scene_details[s] = subdirs
+                                except OSError:
+                                    scene_details[s] = []
                     except OSError:
                         pass
                         
@@ -40,6 +51,7 @@ class DatasetViewSet(viewsets.ViewSet):
                         'path': path,
                         'sceneCount': len(scenes),
                         'scenes': scenes,
+                        'sceneDetails': scene_details,
                         'date': date_str,
                         'expanded': False # Frontend helper
                     })
@@ -47,6 +59,31 @@ class DatasetViewSet(viewsets.ViewSet):
             return Response({'error': str(e)}, status=500)
             
         return Response(datasets)
+
+    def destroy(self, request, pk=None):
+        """
+        Delete a dataset folder.
+        Here pk is treated as the dataset name.
+        """
+        if not pk:
+            return Response({'error': 'Dataset name is required'}, status=400)
+            
+        root = settings.DATASETS_ROOT
+        dataset_path = os.path.join(root, pk)
+        
+        # Security check: ensure path is within DATASETS_ROOT
+        dataset_path = os.path.normpath(dataset_path)
+        if not dataset_path.startswith(os.path.normpath(root)):
+             return Response({'error': 'Invalid path'}, status=400)
+             
+        if not os.path.exists(dataset_path):
+            return Response({'error': 'Dataset not found'}, status=404)
+            
+        try:
+            shutil.rmtree(dataset_path)
+            return Response({'status': 'deleted'})
+        except OSError as e:
+            return Response({'error': str(e)}, status=500)
 
     @action(detail=False, methods=['get'])
     def images(self, request):
@@ -95,14 +132,71 @@ class TaskViewSet(viewsets.ModelViewSet):
         task.save()
         return Response({'status': 'completed'})
 
+    @action(detail=True, methods=['get'])
+    def export(self, request, pk=None):
+        task = self.get_object()
+        
+        # If model_path is not set, try to infer it or return error
+        # For this demo, if model_path is empty, we might fail.
+        # But let's check if we can construct a path.
+        if not task.model_path:
+            # Try default location: DATASETS_ROOT/outputs/{task.name}
+            # Or assume it's under the scene folder?
+            # Let's assume DATASETS_ROOT/outputs/{task.name} for now or return error
+            # But wait, the user's request implies files exist.
+            # I will check if model_path is empty.
+             return Response({'error': 'Model path is not set for this task'}, status=404)
+             
+        if not os.path.exists(task.model_path):
+             return Response({'error': f'Model path does not exist: {task.model_path}'}, status=404)
+        
+        buffer = io.BytesIO()
+        try:
+            with zipfile.ZipFile(buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
+                # Add point_cloud folder
+                pc_path = os.path.join(task.model_path, 'point_cloud')
+                if os.path.exists(pc_path):
+                    for root, dirs, files in os.walk(pc_path):
+                        for file in files:
+                            file_path = os.path.join(root, file)
+                            arcname = os.path.relpath(file_path, task.model_path)
+                            zip_file.write(file_path, arcname)
+                
+                # Add cameras.json
+                cameras_path = os.path.join(task.model_path, 'cameras.json')
+                if os.path.exists(cameras_path):
+                    zip_file.write(cameras_path, 'cameras.json')
+                    
+                # Check if zip is empty
+                if not zip_file.namelist():
+                     return Response({'error': 'No required files (point_cloud, cameras.json) found in model path'}, status=404)
+                     
+        except Exception as e:
+            return Response({'error': str(e)}, status=500)
+
+        buffer.seek(0)
+        response = HttpResponse(buffer, content_type='application/zip')
+        response['Content-Disposition'] = f'attachment; filename="{task.name}_model.zip"'
+        return response
+
+    def destroy(self, request, *args, **kwargs):
+        try:
+            instance = self.get_object()
+            self.perform_destroy(instance)
+            return Response(status=status.HTTP_204_NO_CONTENT)
+        except Exception as e:
+            return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
 class AnnotationViewSet(viewsets.ModelViewSet):
     queryset = Annotation.objects.all()
     serializer_class = AnnotationSerializer
 
 # Custom views for file upload support
-from django.http import JsonResponse
+from django.http import JsonResponse, HttpResponse
 from django.views.decorators.csrf import csrf_exempt
 import os
+import zipfile
+import io
 from django.conf import settings
 
 @csrf_exempt

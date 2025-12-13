@@ -20,10 +20,12 @@
         </div>
         <div class="task-actions">
           <button v-if="task.status === 'completed'" @click="viewResult(task)" class="btn-outline">查看模型</button>
+          <button v-if="task.status === 'completed'" @click="exportModel(task)" class="btn-outline">导出</button>
           <button v-if="task.status === 'processing'" class="btn-outline disabled" disabled>处理中...</button>
           <!-- Handle other statuses if needed, e.g. pending/failed -->
           <button v-if="task.status === 'pending'" class="btn-outline disabled" disabled>等待中...</button>
           <button v-if="task.status === 'failed'" class="btn-outline failed" disabled>失败</button>
+          <button @click="deleteTask(task)" class="btn-outline danger">删除</button>
         </div>
       </div>
     </div>
@@ -68,6 +70,20 @@
         </div>
       </div>
     </div>
+
+    <!-- Delete Task Modal -->
+    <div v-if="showDeleteModal" class="modal-overlay">
+      <div class="modal" style="max-width: 400px;">
+        <h2>删除任务</h2>
+        <p style="color: var(--text-muted); margin-bottom: 24px;">
+          确定要删除任务 "{{ taskToDelete?.name }}" 吗? 此操作无法撤销。
+        </p>
+        <div class="modal-actions">
+          <button @click="closeDeleteModal" class="btn-secondary">取消</button>
+          <button @click="confirmDelete" class="btn-primary" style="background: var(--danger); border-color: var(--danger);">确认删除</button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -77,6 +93,8 @@ import { useRouter } from 'vue-router';
 
 const router = useRouter();
 const showCreateModal = ref(false);
+const showDeleteModal = ref(false);
+const taskToDelete = ref(null);
 const tasks = ref([]);
 const datasets = ref([]);
 const API_BASE = 'http://127.0.0.1:8000/api';
@@ -189,6 +207,62 @@ const createTask = async () => {
   }
 };
 
+const exportModel = async (task) => {
+  try {
+    const res = await fetch(`${API_BASE}/tasks/${task.id}/export/`);
+    if (res.ok) {
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${task.name}_model.zip`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      a.remove();
+    } else {
+        const err = await res.json();
+        alert(`导出失败: ${err.error || '模型文件不存在'}`);
+    }
+  } catch (e) {
+    console.error("Export error", e);
+    alert('导出出错');
+  }
+};
+
+const deleteTask = (task) => {
+  taskToDelete.value = task;
+  showDeleteModal.value = true;
+};
+
+const closeDeleteModal = () => {
+  showDeleteModal.value = false;
+  taskToDelete.value = null;
+};
+
+const confirmDelete = async () => {
+  if (!taskToDelete.value) return;
+  
+  const task = taskToDelete.value;
+  
+  try {
+    const res = await fetch(`${API_BASE}/tasks/${task.id}/`, {
+      method: 'DELETE'
+    });
+
+    if (res.ok) {
+      // Remove from list
+      tasks.value = tasks.value.filter(t => t.id !== task.id);
+      closeDeleteModal();
+    } else {
+      alert('删除失败');
+    }
+  } catch (e) {
+    console.error("Error deleting task", e);
+    alert('删除出错');
+  }
+};
+
 const viewResult = (task) => {
   router.push({ 
     path: '/editor', 
@@ -293,33 +367,47 @@ const viewResult = (task) => {
 
 /* Removed local .btn-primary to use global from base.css */
 
+.task-actions {
+  display: flex;
+  gap: 12px;
+  margin-top: 20px;
+}
+
 .btn-outline {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   background: transparent;
   border: 1px solid rgba(139, 92, 246, 0.5);
   color: var(--primary);
   padding: 10px 16px;
   border-radius: 8px;
   cursor: pointer;
-  width: 100%;
-  margin-top: 16px;
   transition: all 0.2s;
+  font-weight: 500;
+  font-size: 0.9rem;
+  height: 40px;
 }
 
 .btn-outline:hover {
   background: rgba(139, 92, 246, 0.1);
   border-color: var(--primary);
   color: var(--text-main);
+  transform: translateY(-1px);
 }
 
 .btn-outline.disabled {
   border-color: var(--border-color);
   color: var(--text-muted);
   cursor: not-allowed;
+  opacity: 0.6;
 }
 
 .btn-outline.disabled:hover {
   background: transparent;
   color: var(--text-muted);
+  transform: none;
 }
 
 .btn-outline.failed {
@@ -327,8 +415,14 @@ const viewResult = (task) => {
   color: var(--danger);
 }
 
+.btn-outline.danger {
+  border-color: var(--danger);
+  color: var(--danger);
+  margin-left: 0;
+}
+
 /* Modal Styles */
-.modal-overlay {
+  .modal-overlay {
   position: fixed;
   top: 0;
   left: 0;
