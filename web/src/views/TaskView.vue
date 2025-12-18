@@ -19,7 +19,7 @@
           </div>
         </div>
         <div class="task-actions">
-          <button v-if="task.status === 'completed'" @click="viewResult(task)" class="btn-outline">查看模型</button>
+          <button v-if="task.status === 'completed'" @click="viewResult(task)" class="btn-outline">模型</button>
           <button v-if="task.status === 'completed'" @click="exportModel(task)" class="btn-outline">导出</button>
           <button v-if="task.status === 'processing'" class="btn-outline disabled" disabled>处理中...</button>
           <!-- Handle other statuses if needed, e.g. pending/failed -->
